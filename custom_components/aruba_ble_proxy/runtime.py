@@ -345,7 +345,7 @@ class ArubaBleProxyRuntime:
             if normalized_source in self._remote_scanners:
                 continue
             try:
-                await self._async_create_remote_scanner(normalized_source)
+                await self._async_ensure_remote_scanner(normalized_source)
             except Exception:
                 _LOGGER.exception(
                     "Failed to register configured Aruba AP scanner %s",
@@ -475,6 +475,18 @@ class ArubaBleProxyRuntime:
         self._notify_passive_listeners()
 
     async def _async_handle_message(self, message: ArubaTelemetryMessage) -> None:
+        # Aruba includes the reporter Ethernet MAC in every telemetry message,
+        # including AP health updates. Registering from it lets an AP appear as a
+        # scanner even when it has not received a BLE advertisement yet.
+        reporter_mac = message.reporter.mac
+        if reporter_mac is not None and self._register_scanner is not None:
+            try:
+                await self._async_ensure_remote_scanner(reporter_mac)
+            except Exception:
+                _LOGGER.exception(
+                    "Failed to register Aruba AP scanner %s from telemetry",
+                    reporter_mac,
+                )
         for characteristic in message.characteristics:
             self._handle_characteristic(characteristic)
         for status in message.statuses or []:
@@ -2030,15 +2042,8 @@ class ArubaBleProxyRuntime:
         if self._register_scanner is None:
             return False
 
-        source = _normalize_mac(payload.source) or payload.source.upper()
         try:
-            scanner = self._remote_scanners.get(source)
-            if scanner is None:
-                lock = self._scanner_create_locks.setdefault(source, asyncio.Lock())
-                async with lock:
-                    scanner = self._remote_scanners.get(source)
-                    if scanner is None:
-                        scanner = await self._async_create_remote_scanner(source)
+            scanner = await self._async_ensure_remote_scanner(payload.source)
             scanner.async_on_payload(payload)
         except Exception as err:
             self.stats.bluetooth_forward_errors += 1
@@ -2049,6 +2054,20 @@ class ArubaBleProxyRuntime:
             self.stats.bluetooth_forwards += 1
             self.stats.last_bluetooth_error = None
             return True
+
+    async def _async_ensure_remote_scanner(self, source: str) -> Any:
+        """Return the AP scanner, creating it at most once per source."""
+        normalized_source = _normalize_mac(source) or source.upper()
+        scanner = self._remote_scanners.get(normalized_source)
+        if scanner is not None:
+            return scanner
+
+        lock = self._scanner_create_locks.setdefault(normalized_source, asyncio.Lock())
+        async with lock:
+            scanner = self._remote_scanners.get(normalized_source)
+            if scanner is None:
+                scanner = await self._async_create_remote_scanner(normalized_source)
+            return scanner
 
     async def _async_create_remote_scanner(self, source: str) -> Any:
         return self._create_remote_scanner(

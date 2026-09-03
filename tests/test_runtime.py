@@ -409,6 +409,108 @@ def test_runtime_registers_persisted_source_scanners_at_startup(monkeypatch):
     assert registered_sources == ["02:00:00:00:00:01"]
 
 
+def test_runtime_registers_ap_scanner_from_message_without_ble_events(monkeypatch):
+    async def run_test():
+        runtime = ArubaBleProxyRuntime(
+            hass=None,
+            host="0.0.0.0",
+            port=7443,
+            access_token="secret",
+        )
+        runtime._register_scanner = object()
+        scanner = object()
+        registered_sources = []
+
+        async def create_remote_scanner(source):
+            registered_sources.append(source)
+            runtime._remote_scanners[source] = scanner
+            return scanner
+
+        monkeypatch.setattr(runtime, "_async_create_remote_scanner", create_remote_scanner)
+
+        await runtime._async_handle_message(
+            ArubaTelemetryMessage(
+                reporter=_reporter("02:00:00:00:00:01"),
+                events=[],
+                action_results=[],
+                characteristics=[],
+            )
+        )
+
+        assert registered_sources == ["02:00:00:00:00:01"]
+        assert runtime._remote_scanners == {"02:00:00:00:00:01": scanner}
+
+    asyncio.run(run_test())
+
+
+def test_runtime_does_not_register_message_reporter_without_mac(monkeypatch):
+    runtime = ArubaBleProxyRuntime(
+        hass=None,
+        host="0.0.0.0",
+        port=7443,
+        access_token="secret",
+    )
+    runtime._register_scanner = object()
+
+    async def fail_create_remote_scanner(source):
+        pytest.fail(f"unexpected scanner registration for {source}")
+
+    monkeypatch.setattr(runtime, "_async_create_remote_scanner", fail_create_remote_scanner)
+
+    asyncio.run(
+        runtime._async_handle_message(
+            ArubaTelemetryMessage(
+                reporter=Reporter(
+                    name="ap-without-mac",
+                    mac=None,
+                    ipv4="192.0.2.10",
+                    ipv6=None,
+                    hardware_type=None,
+                    software_version=None,
+                    software_build=None,
+                    timestamp=None,
+                ),
+                events=[],
+                action_results=[],
+                characteristics=[],
+            )
+        )
+    )
+
+    assert runtime._remote_scanners == {}
+
+
+def test_runtime_creates_remote_scanner_once_for_concurrent_sources(monkeypatch):
+    async def run_test():
+        runtime = ArubaBleProxyRuntime(
+            hass=None,
+            host="0.0.0.0",
+            port=7443,
+            access_token="secret",
+        )
+        scanner = object()
+        registered_sources = []
+
+        async def create_remote_scanner(source):
+            registered_sources.append(source)
+            await asyncio.sleep(0)
+            runtime._remote_scanners[source] = scanner
+            return scanner
+
+        monkeypatch.setattr(runtime, "_async_create_remote_scanner", create_remote_scanner)
+
+        first, second = await asyncio.gather(
+            runtime._async_ensure_remote_scanner("02-00-00-00-00-01"),
+            runtime._async_ensure_remote_scanner("02:00:00:00:00:01"),
+        )
+
+        assert first is scanner
+        assert second is scanner
+        assert registered_sources == ["02:00:00:00:00:01"]
+
+    asyncio.run(run_test())
+
+
 def test_runtime_unregisters_all_scanners_when_one_callback_fails():
     runtime = ArubaBleProxyRuntime(
         hass=None,

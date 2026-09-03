@@ -443,6 +443,49 @@ def test_runtime_registers_ap_scanner_from_message_without_ble_events(monkeypatc
     asyncio.run(run_test())
 
 
+def test_runtime_telemetry_and_ble_use_the_same_ap_scanner(monkeypatch):
+    async def run_test():
+        class Scanner:
+            def __init__(self):
+                self.payloads = []
+
+            def async_on_payload(self, payload):
+                self.payloads.append(payload)
+
+        runtime = ArubaBleProxyRuntime(
+            hass=None,
+            host="0.0.0.0",
+            port=7443,
+            access_token="secret",
+        )
+        runtime._register_scanner = object()
+        scanner = Scanner()
+        registered_sources = []
+
+        async def create_remote_scanner(source):
+            registered_sources.append(source)
+            runtime._remote_scanners[source] = scanner
+            return scanner
+
+        monkeypatch.setattr(runtime, "_async_create_remote_scanner", create_remote_scanner)
+
+        await runtime._async_handle_message(
+            ArubaTelemetryMessage(
+                reporter=_reporter("02:00:00:00:00:01"),
+                events=[],
+                action_results=[],
+                characteristics=[],
+            )
+        )
+        await runtime._async_handle_event(_event())
+
+        assert registered_sources == ["02:00:00:00:00:01"]
+        assert runtime._remote_scanners == {"02:00:00:00:00:01": scanner}
+        assert len(scanner.payloads) == 1
+
+    asyncio.run(run_test())
+
+
 def test_runtime_does_not_register_message_reporter_without_mac(monkeypatch):
     runtime = ArubaBleProxyRuntime(
         hass=None,

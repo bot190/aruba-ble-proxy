@@ -83,7 +83,7 @@ def mac_to_bytes(value: str) -> bytes:
 def uuid_to_bytes(value: str | None) -> bytes:
     if value is None:
         return b""
-    cleaned = value.strip().replace("-", "")
+    cleaned = value.strip().replace("-", "").lower()
     if len(cleaned) == 4:
         return bytes.fromhex(cleaned)
     if len(cleaned) != 32:

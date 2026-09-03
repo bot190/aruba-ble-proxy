@@ -359,6 +359,56 @@ def test_runtime_rolls_back_partial_scanner_registration(monkeypatch):
     assert runtime._scanner_unsubs == {}
 
 
+def test_runtime_registers_persisted_source_scanners_at_startup(monkeypatch):
+    class Entry:
+        def __init__(self, data):
+            self.data = data
+
+    class ConfigEntries:
+        def async_entries(self, domain):
+            assert domain == DOMAIN
+            return [
+                Entry(
+                    {
+                        CONF_ENTRY_TYPE: ENTRY_TYPE_AP_SOURCE,
+                        CONF_AP_SOURCE: "02-00-00-00-00-01",
+                        CONF_PARENT_ENTRY_ID: "listener-entry",
+                    }
+                ),
+                Entry(
+                    {
+                        CONF_ENTRY_TYPE: ENTRY_TYPE_AP_SOURCE,
+                        CONF_AP_SOURCE: "02:00:00:00:00:02",
+                        CONF_PARENT_ENTRY_ID: "another-listener",
+                    }
+                ),
+                Entry({CONF_ENTRY_TYPE: "listener"}),
+            ]
+
+    class Hass:
+        config_entries = ConfigEntries()
+
+    runtime = ArubaBleProxyRuntime(
+        hass=Hass(),
+        host="0.0.0.0",
+        port=7443,
+        access_token="secret",
+    )
+    runtime._entry_id = "listener-entry"
+    registered_sources = []
+
+    async def create_remote_scanner(source):
+        registered_sources.append(source)
+        runtime._remote_scanners[source] = object()
+
+    monkeypatch.setattr(runtime, "_async_create_remote_scanner", create_remote_scanner)
+
+    asyncio.run(runtime._async_register_configured_source_scanners())
+    asyncio.run(runtime._async_register_configured_source_scanners())
+
+    assert registered_sources == ["02:00:00:00:00:01"]
+
+
 def test_runtime_unregisters_all_scanners_when_one_callback_fails():
     runtime = ArubaBleProxyRuntime(
         hass=None,

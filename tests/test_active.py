@@ -81,6 +81,9 @@ def test_uuid_to_bytes_compresses_bluetooth_base_uuid_only():
     assert uuid_to_bytes("0000180f-0000-1000-8000-00805f9b34fb") == bytes.fromhex(
         "180f"
     )
+    assert uuid_to_bytes("0000180F-0000-1000-8000-00805F9B34FB") == bytes.fromhex(
+        "180f"
+    )
     assert uuid_to_bytes("12345678-1234-5678-1234-567812345678") == bytes.fromhex(
         "12345678123456781234567812345678"
     )

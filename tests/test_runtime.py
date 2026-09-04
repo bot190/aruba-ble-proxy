@@ -21,6 +21,7 @@ from custom_components.aruba_ble_proxy.models import (
     Reporter,
 )
 from custom_components.aruba_ble_proxy.const import (
+    CONF_AP_MODEL,
     CONF_AP_SOURCE,
     CONF_ENTRY_TYPE,
     CONF_PARENT_ENTRY_ID,
@@ -283,11 +284,13 @@ def test_runtime_creates_distinct_ap_source_entries_for_remote_scanners():
         assert hass.config_entries.entries[0].data == {
             CONF_ENTRY_TYPE: ENTRY_TYPE_AP_SOURCE,
             CONF_AP_SOURCE: "02:00:00:00:00:01",
+            CONF_AP_MODEL: "Aruba AP",
             CONF_PARENT_ENTRY_ID: "listener-entry",
         }
         assert hass.config_entries.entries[1].data == {
             CONF_ENTRY_TYPE: ENTRY_TYPE_AP_SOURCE,
             CONF_AP_SOURCE: "02:00:00:00:00:02",
+            CONF_AP_MODEL: "Aruba AP",
             CONF_PARENT_ENTRY_ID: "listener-entry",
         }
 
@@ -439,6 +442,125 @@ def test_runtime_registers_ap_scanner_from_message_without_ble_events(monkeypatc
 
         assert registered_sources == ["02:00:00:00:00:01"]
         assert runtime._remote_scanners == {"02:00:00:00:00:01": scanner}
+
+    asyncio.run(run_test())
+
+
+def test_runtime_uses_reporter_hardware_type_as_scanner_model(monkeypatch):
+    async def run_test():
+        runtime = ArubaBleProxyRuntime(
+            hass=None,
+            host="0.0.0.0",
+            port=7443,
+            access_token="secret",
+        )
+        runtime._register_scanner = object()
+        scanner = object()
+        registrations = []
+
+        def create_remote_scanner(source, **kwargs):
+            registrations.append((source, kwargs))
+            runtime._remote_scanners[source] = scanner
+            return scanner
+
+        monkeypatch.setattr(runtime, "_create_remote_scanner", create_remote_scanner)
+
+        await runtime._async_handle_message(
+            ArubaTelemetryMessage(
+                reporter=_event().reporter,
+                events=[],
+                action_results=[],
+                characteristics=[],
+            )
+        )
+
+        assert registrations == [
+            (
+                "02:00:00:00:00:01",
+                {
+                    "source_model": "AP-515",
+                    "source_config_entry_id": None,
+                },
+            )
+        ]
+
+    asyncio.run(run_test())
+
+
+def test_runtime_uses_generic_scanner_model_when_reporter_omits_it(monkeypatch):
+    async def run_test():
+        runtime = ArubaBleProxyRuntime(
+            hass=None,
+            host="0.0.0.0",
+            port=7443,
+            access_token="secret",
+        )
+        scanner = object()
+        registrations = []
+
+        def create_remote_scanner(source, **kwargs):
+            registrations.append((source, kwargs))
+            runtime._remote_scanners[source] = scanner
+            return scanner
+
+        monkeypatch.setattr(runtime, "_create_remote_scanner", create_remote_scanner)
+
+        await runtime._async_ensure_remote_scanner("02:00:00:00:00:01")
+
+        assert registrations[0][1]["source_model"] == "Aruba AP"
+
+    asyncio.run(run_test())
+
+
+def test_runtime_persists_hardware_type_received_after_scanner_restore():
+    async def run_test():
+        source = "02:00:00:00:00:01"
+
+        class Entry:
+            entry_id = "ap-entry"
+            data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_AP_SOURCE,
+                CONF_AP_SOURCE: source,
+                CONF_AP_MODEL: "Aruba AP",
+                CONF_PARENT_ENTRY_ID: "listener-entry",
+            }
+
+        entry = Entry()
+
+        class ConfigEntries:
+            def async_entries(self, domain):
+                assert domain == DOMAIN
+                return [entry]
+
+            def async_get_entry(self, entry_id):
+                return entry if entry_id == entry.entry_id else None
+
+            def async_update_entry(self, target, *, data):
+                assert target is entry
+                target.data = data
+
+        class Hass:
+            config_entries = ConfigEntries()
+
+        runtime = ArubaBleProxyRuntime(
+            hass=Hass(),
+            host="0.0.0.0",
+            port=7443,
+            access_token="secret",
+        )
+        runtime._entry_id = "listener-entry"
+        runtime._source_entry_ids[source] = entry.entry_id
+        runtime._source_models[source] = "Aruba AP"
+        scanner = object()
+        runtime._remote_scanners[source] = scanner
+
+        restored = await runtime._async_ensure_remote_scanner(
+            source,
+            source_model="AP-515",
+        )
+
+        assert restored is scanner
+        assert entry.data[CONF_AP_MODEL] == "AP-515"
 
     asyncio.run(run_test())
 

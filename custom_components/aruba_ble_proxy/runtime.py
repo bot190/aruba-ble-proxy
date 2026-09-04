@@ -22,9 +22,11 @@ from .active import (
 )
 from .aruba_proto import ArubaTelemetryMessage
 from .const import (
+    CONF_AP_MODEL,
     CONF_AP_SOURCE,
     CONF_ENTRY_TYPE,
     CONF_PARENT_ENTRY_ID,
+    DEFAULT_AP_MODEL,
     DEFAULT_ENDPOINT_PATH,
     DOMAIN,
     ENTRY_TYPE_AP_SOURCE,
@@ -253,6 +255,7 @@ class ArubaBleProxyRuntime:
         self._bluetooth_callback: Callable[[Any], None] | None = None
         self._entry_id: str | None = None
         self._source_entry_ids: dict[str, str] = {}
+        self._source_models: dict[str, str] = {}
         self._register_scanner: Callable[..., Callable[[], None]] | None = None
         self._scanner_unsubs: dict[str, list[Callable[[], None]]] = {}
         self._remote_scanners: dict[str, Any] = {}
@@ -342,10 +345,14 @@ class ArubaBleProxyRuntime:
             if not source:
                 continue
             normalized_source = _normalize_mac(str(source)) or str(source).upper()
+            source_model = _normalize_ap_model(data.get(CONF_AP_MODEL))
             if normalized_source in self._remote_scanners:
                 continue
             try:
-                await self._async_ensure_remote_scanner(normalized_source)
+                await self._async_ensure_remote_scanner(
+                    normalized_source,
+                    source_model=source_model,
+                )
             except Exception:
                 _LOGGER.exception(
                     "Failed to register configured Aruba AP scanner %s",
@@ -481,7 +488,10 @@ class ArubaBleProxyRuntime:
         reporter_mac = message.reporter.mac
         if reporter_mac is not None and self._register_scanner is not None:
             try:
-                await self._async_ensure_remote_scanner(reporter_mac)
+                await self._async_ensure_remote_scanner(
+                    reporter_mac,
+                    source_model=message.reporter.hardware_type,
+                )
             except Exception:
                 _LOGGER.exception(
                     "Failed to register Aruba AP scanner %s from telemetry",
@@ -2055,11 +2065,26 @@ class ArubaBleProxyRuntime:
             self.stats.last_bluetooth_error = None
             return True
 
-    async def _async_ensure_remote_scanner(self, source: str) -> Any:
+    async def _async_ensure_remote_scanner(
+        self,
+        source: str,
+        *,
+        source_model: str | None = None,
+    ) -> Any:
         """Return the AP scanner, creating it at most once per source."""
         normalized_source = _normalize_mac(source) or source.upper()
+        normalized_model = _normalize_ap_model(source_model)
+        previous_model = self._source_models.get(normalized_source)
+        if previous_model is None or normalized_model != DEFAULT_AP_MODEL:
+            self._source_models[normalized_source] = normalized_model
+        model_changed = previous_model != self._source_models[normalized_source]
         scanner = self._remote_scanners.get(normalized_source)
         if scanner is not None:
+            if model_changed:
+                await self._async_source_config_entry_id(
+                    normalized_source,
+                    source_model=self._source_models[normalized_source],
+                )
             return scanner
 
         lock = self._scanner_create_locks.setdefault(normalized_source, asyncio.Lock())
@@ -2070,21 +2095,34 @@ class ArubaBleProxyRuntime:
             return scanner
 
     async def _async_create_remote_scanner(self, source: str) -> Any:
+        source_model = self._source_models.get(source, DEFAULT_AP_MODEL)
         return self._create_remote_scanner(
             source,
-            source_config_entry_id=await self._async_source_config_entry_id(source),
+            source_model=source_model,
+            source_config_entry_id=await self._async_source_config_entry_id(
+                source,
+                source_model=source_model,
+            ),
         )
 
-    async def _async_source_config_entry_id(self, source: str) -> str | None:
+    async def _async_source_config_entry_id(
+        self,
+        source: str,
+        *,
+        source_model: str | None = None,
+    ) -> str | None:
         if self.hass is None or self._entry_id is None:
             return self._entry_id
 
         current = self._source_entry_ids.get(source)
         if current is not None and _config_entry_exists(self.hass, current):
+            entry = self.hass.config_entries.async_get_entry(current)
+            _update_ap_source_entry_model(self.hass, entry, source_model)
             return current
 
         if entry := _find_ap_source_entry(self.hass, self._entry_id, source):
             self._source_entry_ids[source] = entry.entry_id
+            _update_ap_source_entry_model(self.hass, entry, source_model)
             return entry.entry_id
 
         flow = getattr(getattr(self.hass.config_entries, "flow", None), "async_init", None)
@@ -2104,6 +2142,7 @@ class ArubaBleProxyRuntime:
             data={
                 CONF_ENTRY_TYPE: ENTRY_TYPE_AP_SOURCE,
                 CONF_AP_SOURCE: source,
+                CONF_AP_MODEL: _normalize_ap_model(source_model),
                 CONF_PARENT_ENTRY_ID: self._entry_id,
             },
         )
@@ -2116,6 +2155,7 @@ class ArubaBleProxyRuntime:
         self,
         source: str,
         *,
+        source_model: str = DEFAULT_AP_MODEL,
         source_config_entry_id: str | None = None,
     ) -> Any:
         from .scanner import ArubaBleRemoteScanner
@@ -2138,6 +2178,7 @@ class ArubaBleProxyRuntime:
                         self.active_connection_slots if remote_scanner.connectable else 0
                     ),
                     source_domain=DOMAIN,
+                    source_model=source_model,
                     source_config_entry_id=source_config_entry_id,
                 )
             )
@@ -2302,6 +2343,30 @@ def _config_entry_exists(hass: Any, entry_id: str) -> bool:
     if getter is None:
         return False
     return getter(entry_id) is not None
+
+
+def _normalize_ap_model(value: Any) -> str:
+    if value is None:
+        return DEFAULT_AP_MODEL
+    model = str(value).strip()
+    return model or DEFAULT_AP_MODEL
+
+
+def _update_ap_source_entry_model(
+    hass: Any,
+    entry: Any,
+    source_model: str | None,
+) -> None:
+    """Persist the AP model so restored scanners keep the same metadata."""
+    if entry is None:
+        return
+    model = _normalize_ap_model(source_model)
+    data = dict(getattr(entry, "data", {}))
+    if data.get(CONF_AP_MODEL) == model:
+        return
+    update_entry = getattr(hass.config_entries, "async_update_entry", None)
+    if update_entry is not None:
+        update_entry(entry, data={**data, CONF_AP_MODEL: model})
 
 
 def _find_ap_source_entry(hass: Any, parent_entry_id: str, source: str) -> Any | None:

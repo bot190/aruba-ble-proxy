@@ -17,6 +17,7 @@ CONF_SETUP_COMPLETE = "setup_complete"
 CONF_ENTRY_TYPE = "entry_type"
 CONF_PARENT_ENTRY_ID = "parent_entry_id"
 CONF_AP_SOURCE = "ap_source"
+CONF_AP_MODEL = "ap_model"
 
 ENTRY_TYPE_LISTENER = "listener"
 ENTRY_TYPE_AP_SOURCE = "ap_source"
@@ -29,6 +30,7 @@ DEFAULT_TRANSPORT_PREFIX = "ha-ble"
 DEFAULT_RADIO_PROFILE = "ha-ble-radio"
 DEFAULT_ENABLE_ACTIVE_BLE = True
 DEFAULT_ACTIVE_CONNECTION_SLOTS = 3
+DEFAULT_AP_MODEL = "Aruba AP"
 
 SERVICE_GENERATE_CLI = "generate_cli"
 SERVICE_GENERATE_CLEANUP_CLI = "generate_cleanup_cli"

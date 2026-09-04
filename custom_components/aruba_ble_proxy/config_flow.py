@@ -33,9 +33,10 @@ from homeassistant.core import callback
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_ACTIVE_CONNECTION_SLOTS,
+    CONF_AP_MODEL,
     CONF_AP_SOURCE,
-    CONF_ENABLE_RADIO_PROFILE,
     CONF_ENABLE_ACTIVE_BLE,
+    CONF_ENABLE_RADIO_PROFILE,
     CONF_ENDPOINT_PATH,
     CONF_ENTRY_TYPE,
     CONF_LISTEN_HOST,
@@ -46,9 +47,10 @@ from .const import (
     CONF_RADIO_PROFILE,
     CONF_SETUP_COMPLETE,
     CONF_TRANSPORT_PREFIX,
-    DEFAULT_ENDPOINT_PATH,
     DEFAULT_ACTIVE_CONNECTION_SLOTS,
+    DEFAULT_AP_MODEL,
     DEFAULT_ENABLE_ACTIVE_BLE,
+    DEFAULT_ENDPOINT_PATH,
     DEFAULT_LISTEN_HOST,
     DEFAULT_LISTEN_PORT,
     DEFAULT_PUBLIC_SCHEME,
@@ -349,9 +351,11 @@ class ArubaBleProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         source = str(discovery_info[CONF_AP_SOURCE])
         parent_entry_id = str(discovery_info[CONF_PARENT_ENTRY_ID])
+        model = str(discovery_info.get(CONF_AP_MODEL) or DEFAULT_AP_MODEL).strip()
         data = {
             CONF_ENTRY_TYPE: ENTRY_TYPE_AP_SOURCE,
             CONF_AP_SOURCE: source,
+            CONF_AP_MODEL: model or DEFAULT_AP_MODEL,
             CONF_PARENT_ENTRY_ID: parent_entry_id,
         }
         await self.async_set_unique_id(f"{ENTRY_TYPE_AP_SOURCE}:{parent_entry_id}:{source}")

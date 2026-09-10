@@ -1,0 +1,20 @@
+name: HACS validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate HACS integration
+        uses: hacs/action@main
+        with:
+          category: integration
+          # Custom repository installs use the bundled brand/ icons. Submission
+          # to the default HACS catalog requires Home Assistant Brands registration.
+          ignore: brands

@@ -21,6 +21,35 @@ integration's `brand/` directory.
 
 See [SPEC.md](SPEC.md) for scope and architecture.
 
+## Install with HACS
+
+1. In HACS, open the menu and select **Custom repositories**.
+2. Add `https://github.com/bot190/aruba-ble-proxy` with type **Integration**.
+3. Find **Aruba BLE Proxy** in HACS and download it.
+4. Restart Home Assistant.
+5. Go to **Settings → Devices & services → Add Integration** and select
+   **Aruba BLE Proxy**.
+6. Complete setup and apply the generated Aruba CLI configuration. See the
+   [setup and Aruba configuration guide](docs/INSTALL_MANUAL.md#add-integration)
+   for settings and validation steps.
+
+HACS installs the complete `custom_components/aruba_ble_proxy` directory,
+including the bundled protobuf modules and brand assets. No separate checkout,
+protobuf generation, or manual pip installation is needed in Home Assistant.
+Existing manual installations can use HACS to manage the same integration;
+keep the existing Home Assistant configuration entry.
+
+This repository can be added as a custom repository; it is not a default HACS
+catalog listing. The GitHub repository must be public. Maintainers should enable
+issues and set a repository description and relevant topics. GitHub Actions
+validates HACS metadata on pushes and pull requests. To publish a versioned
+update, create a GitHub release whose tag matches the integration's
+`manifest.json` version (currently `1.2.0`). Release ZIP files are not required.
+Without releases, HACS can install from the default branch.
+
+See the [HACS publishing requirements](https://hacs.xyz/docs/publish/integration/)
+for default catalog submission, including Home Assistant Brands registration.
+
 ## Development
 
 Install dependencies:

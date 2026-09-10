@@ -1,6 +1,7 @@
 # Manual Home Assistant Install
 
-This is the current development install path before HACS packaging exists.
+For installation through HACS, see [Install with HACS](../README.md#install-with-hacs).
+Use the manual steps below for development or installations without HACS.
 
 ## Files to copy
 
@@ -87,8 +88,3 @@ Known limits:
 - descriptor read/write and unpairing
 - generic repair of incomplete Aruba GATT discovery
 - application-level decoding or repair of vendor payloads
-
-## Current limitation
-
-This integration is not yet packaged for HACS. Manual install currently means copying
-`custom_components/aruba_ble_proxy` into Home Assistant and restarting.
